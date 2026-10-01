@@ -1,6 +1,8 @@
 name: Build Lawnchair APK
 
 on:
+  push:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -17,9 +19,12 @@ jobs:
 
       - name: Download & Extract Zip
         run: |
-          # PASTE LINK CATBOX KAMU DI DALAM TANDA PETIK DI BAWAH INI:
-          curl -L "https://files.catbox.moe/0anrcl.zip" -o lawnchair-12.1.0-alpha.4.zip
-          unzip -o lawnchair-12.1.0-alpha.4.zip -d ./
+          curl -L "https://files.catbox.moe/0anrcl.zip" -o lawnchair.zip
+          unzip -o lawnchair.zip -d ./
+          # Pindahkan isi jika terekstrak ke dalam folder turunan
+          if [ -d "lawnchair-12.1.0-alpha.4" ]; then
+            cp -rn lawnchair-12.1.0-alpha.4/* ./ || true
+          fi
           chmod +x gradlew || true
 
       - name: Build APK
