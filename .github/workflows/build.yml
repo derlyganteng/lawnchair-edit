@@ -19,7 +19,7 @@ jobs:
 
       - name: Download & Extract Zip
         run: |
-          curl -L "https://files.catbox.moe/0anrcl.zip" -o lawnchair.zip
+          curl -L "https://files.catbox.moe/jsxzni.zip" -o lawnchair.zip
           unzip -o lawnchair.zip -d ./
           if [ -d "lawnchair-12.1.0-alpha.4" ]; then
             shopt -s dotglob
