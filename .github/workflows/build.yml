@@ -17,19 +17,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Download & Extract Zip
         run: |
           curl -L "https://files.catbox.moe/jsxzni.zip" -o lawnchair.zip
-          unzip -o lawnchair.zip -d ./
+          unzip -q lawnchair.zip
           if [ -d "lawnchair-12.1.0-alpha.4" ]; then
-            shopt -s dotglob
-            mv lawnchair-12.1.0-alpha.4/* ./ 2>/dev/null || true
-            rm -rf lawnchair-12.1.0-alpha.4
+            cp -r lawnchair-12.1.0-alpha.4/. .
+            rm -rf lawnchair-12.1.0-alpha.4 lawnchair.zip
           fi
-          chmod +x gradlew || true
+          chmod +x gradlew
 
       - name: Build APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Upload APK Result
         uses: actions/upload-artifact@v4
