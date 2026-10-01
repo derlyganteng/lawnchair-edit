@@ -1,0 +1,33 @@
+name: Build Lawnchair APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Download & Extract Zip
+        run: |
+          # PASTE LINK CATBOX KAMU DI DALAM TANDA PETIK DI BAWAH INI:
+          curl -L "https://files.catbox.moe/0anrcl.zip" -o lawnchair.zip
+          unzip -o lawnchair.zip -d ./
+          chmod +x gradlew || true
+
+      - name: Build APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK Result
+        uses: actions/upload-artifact@v3
+        with:
+          name: Lawnchair-iOS18-APK
+          path: "**/build/outputs/apk/debug/*.apk"
+          
