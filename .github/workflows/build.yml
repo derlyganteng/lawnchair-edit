@@ -16,16 +16,17 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-
+      
       - name: Download & Extract Zip
         run: |
           curl -L "https://files.catbox.moe/jsxzni.zip" -o lawnchair.zip
-          unzip -q lawnchair.zip
+          unzip -o -q lawnchair.zip
           if [ -d "lawnchair-12.1.0-alpha.4" ]; then
             cp -r lawnchair-12.1.0-alpha.4/. .
             rm -rf lawnchair-12.1.0-alpha.4 lawnchair.zip
           fi
           chmod +x gradlew
+          
 
       - name: Build APK
         run: ./gradlew assembleDebug --stacktrace -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
