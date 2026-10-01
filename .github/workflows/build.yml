@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,24 +17,25 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-      
+
       - name: Download & Extract Zip
         run: |
           curl -L "https://files.catbox.moe/jsxzni.zip" -o lawnchair.zip
           unzip -o -q lawnchair.zip
+
           if [ -d "lawnchair-12.1.0-alpha.4" ]; then
             cp -r lawnchair-12.1.0-alpha.4/. .
             rm -rf lawnchair-12.1.0-alpha.4 lawnchair.zip
           fi
+
+          # Restore Lawnchair SystemUI submodule
+          if [ ! -f "platform_frameworks_libs_systemui/iconloaderlib/build.gradle" ]; then
+            rm -rf platform_frameworks_libs_systemui
+            git clone https://github.com/LawnchairLauncher/platform_frameworks_libs_systemui.git platform_frameworks_libs_systemui
+            git -C platform_frameworks_libs_systemui checkout e47476233aba2b05a8807ebf5b4c8fd0f89f24c3
+          fi
+
           chmod +x gradlew
-          
 
       - name: Build APK
-        run: ./gradlew assembleDebug --stacktrace -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g"
-
-      - name: Upload APK Result
-        uses: actions/upload-artifact@v4
-        with:
-          name: Lawnchair-iOS18-APK
-          path: "**/build/outputs/apk/debug/*.apk"
-          
+        run: ./gradlew assembleDebug --stacktrace -Dorg.gradle.jvmargs="-Xmx4g -
