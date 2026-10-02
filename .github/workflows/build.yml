@@ -45,14 +45,10 @@ jobs:
           shopt -s dotglob
           cp -a "$PROJECT_ROOT"/. ./
 
-      - name: Download missing SystemUI submodule
+            - name: Restore SystemUI submodule
         run: |
-          rm -rf platform_frameworks_libs_systemui
-
-          git clone --depth 1 \
-            https://github.com/LawnchairLauncher/platform_frameworks_libs_systemui.git \
-            platform_frameworks_libs_systemui
-
+          git submodule init
+          git submodule update --init --recursive
       - name: Check required modules
         run: |
           echo "=== ICONLOADERLIB ==="
