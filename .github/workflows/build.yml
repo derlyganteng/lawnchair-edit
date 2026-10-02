@@ -12,29 +12,26 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
-      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Setup Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      # 3. Install tools
       - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip python3-pip
-
           python3 -m pip install --upgrade pip
           python3 -m pip install gdown
 
-      # 4. Download source ZIP
       - name: Download Lawnchair source
         run: |
           gdown "https://drive.google.com/uc?id=1zLdhfTVVcj6FWmbYRo8QkEhgARWXIYPR" \
@@ -44,61 +41,37 @@ jobs:
           ls -lh lawnchair-source.zip
           file lawnchair-source.zip
 
-      # 5. Inspect ZIP
-      - name: Inspect ZIP
-        run: |
-          echo "=== ZIP ROOT ==="
-          unzip -l lawnchair-source.zip | head -100
-
-          echo "=== IMPORTANT FILES ==="
-          unzip -l lawnchair-source.zip | grep -E \
-            '(^|/)(gradlew|settings.gradle|settings.gradle.kts|build.gradle|build.gradle.kts|gradle-wrapper.properties)$' \
-            | head -100 || true
-
-      # 6. Extract source
       - name: Extract source
         run: |
+          rm -rf source
           mkdir -p source
           unzip -q lawnchair-source.zip -d source
 
-          echo "=== EXTRACTED ROOT ==="
-          find source -maxdepth 2 -type f | head -100
+          echo "=== EXTRACTED FILES ==="
+          find source -maxdepth 3 -type f | head -200
 
-      # 7. Find actual project root
       - name: Locate Gradle project
+        id: gradle-root
+        shell: bash
         run: |
-          PROJECT_ROOT=""
-
-          if [ -f "source/gradlew" ]; then
-            PROJECT_ROOT="source"
-          else
-            FOUND=$(find source -type f -name gradlew -print -quit)
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_ROOT="$(dirname "$FOUND")"
-            fi
-          fi
+          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs -r dirname | head -n 1)"
 
           if [ -z "$PROJECT_ROOT" ]; then
-            echo "::error::gradlew tidak ditemukan di ZIP."
+            echo "::error::No Gradle project found inside the downloaded ZIP."
+            find source -maxdepth 5 -type f | head -200 || true
             exit 1
           fi
 
-          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-
+          echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
           echo "=== PROJECT ROOT ==="
           echo "$PROJECT_ROOT"
 
-      # 8. Move project into repository root
-      - name: Install source
+      - name: Install source into repo root
+        shell: bash
         run: |
+          PROJECT_ROOT="${{ steps.gradle-root.outputs.project_root }}"
           shopt -s dotglob nullglob
-
-          if [ "$PROJECT_ROOT" != "source" ]; then
-            cp -a "$PROJECT_ROOT"/. .
-          else
-            cp -a source/. .
-          fi
+          rsync -a --delete "$PROJECT_ROOT"/. ./
 
           echo "=== PROJECT ROOT CONTENT ==="
           ls -la
@@ -109,14 +82,51 @@ jobs:
             -o -name "settings.gradle.kts" \
             -o -name "build.gradle" \
             -o -name "build.gradle.kts" \
-            -o -name "gradlew" \) \
+            -o -name "gradlew" \
+            -o -path "./gradle/wrapper/*" \) \
             -print
 
-      # 9. Prepare Gradle
+      - name: Fix Gradle and Android plugin compatibility
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+            sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip#' \
+              gradle/wrapper/gradle-wrapper.properties
+          fi
+
+          for f in build.gradle build.gradle.kts settings.gradle settings.gradle.kts; do
+            if [ -f "$f" ]; then
+              echo "Patching $f"
+              python3 - "$f" <<'PY'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+text = p.read_text()
+replacements = {
+    "com.android.tools.build:gradle:3.6.4": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:4.2.2": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:7.0.4": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:7.4.2": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:8.1.0": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:8.2.0": "com.android.tools.build:gradle:8.2.2",
+    "com.android.tools.build:gradle:8.2.1": "com.android.tools.build:gradle:8.2.2",
+}
+for old, new in replacements.items():
+    text = text.replace(old, new)
+p.write_text(text)
+PY
+            fi
+          done
+
+          echo "=== AGP VERSION CHECK ==="
+          grep -RIn "com.android.tools.build:gradle\|distributionUrl" . || true
+
       - name: Prepare Gradle
         run: |
           if [ ! -f "./gradlew" ]; then
-            echo "::error::gradlew tidak ada di project root."
+            echo "::error::gradlew is missing in the project root."
             exit 1
           fi
 
@@ -128,62 +138,15 @@ jobs:
           echo "=== GRADLE ==="
           ./gradlew --version
 
-      # 10. Show available tasks
-      - name: Inspect Gradle tasks
+      - name: Build APK
         run: |
-          ./gradlew tasks --all \
+          set -e
+          ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace \
             --console=plain \
-            > gradle-tasks.txt 2>&1 || true
+            -Dorg.gradle.jvmargs="-Xmx4g"
 
-          echo "=== BUILD TASKS ==="
-          grep -Ei \
-            'assemble.*(debug|release)|bundle.*(debug|release)' \
-            gradle-tasks.txt \
-            | head -100 || true
-
-          echo "=== LAST GRADLE OUTPUT ==="
-          tail -100 gradle-tasks.txt
-
-      # 11. Build APK
-      - name: Build Lawnchair APK
-        run: |
-          set -e
-
-          echo "=== LOOKING FOR BUILD TASK ==="
-
-          TASK=""
-
-          if ./gradlew tasks --all --no-daemon --console=plain \
-              | grep -q "assembleLawnWithQuickstepDebug"; then
-            TASK="assembleLawnWithQuickstepDebug"
-          elif ./gradlew tasks --all --no-daemon --console=plain \
-              | grep -q "assembleDebug"; then
-            TASK="assembleDebug"
-          elif ./gradlew tasks --all --no-daemon --console=plain \
-              | grep -q "assembleLawnDebug"; then
-            TASK="assembleLawnDebug"
-          fi
-
-          if [ -z "$TASK" ]; then
-            echo "::error::Tidak menemukan task APK Debug yang dikenal."
-            echo "=== AVAILABLE ASSEMBLE TASKS ==="
-            ./gradlew tasks --all --no-daemon --console=plain \
-              | grep -Ei "assemble.*debug|assemble.*release" \
-              || true
-            exit 1
-          fi
-
-          echo "=== BUILD TASK ==="
-          echo "$TASK"
-
-          ./gradlew "$TASK" \
-            --no-daemon \
-            --stacktrace \
-            --console=plain
-
-      # 12. Find APK
       - name: Find APK
         if: always()
         run: |
@@ -194,7 +157,6 @@ jobs:
             -not -path "./.git/*" \
             -print
 
-      # 13. Upload APK
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
