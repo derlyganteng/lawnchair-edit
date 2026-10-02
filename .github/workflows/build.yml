@@ -14,24 +14,27 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # 1. Checkout repo
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Java 11 — TANPA cache gradle
-      # Karena source Lawnchair baru masuk setelah ZIP diekstrak
+      # 2. Setup Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # 3. Download source ZIP dari Google Drive
-      - name: Install gdown
+      # 3. Install tools
+      - name: Install tools
         run: |
-          python3 -m pip install --upgrade pip
-          pip install gdown
+          sudo apt-get update
+          sudo apt-get install -y unzip python3-pip
 
+          python3 -m pip install --upgrade pip
+          python3 -m pip install gdown
+
+      # 4. Download source ZIP
       - name: Download Lawnchair source
         run: |
           gdown "https://drive.google.com/uc?id=1zLdhfTVVcj6FWmbYRo8QkEhgARWXIYPR" \
@@ -39,64 +42,161 @@ jobs:
 
           echo "=== ZIP INFO ==="
           ls -lh lawnchair-source.zip
+          file lawnchair-source.zip
 
-      # 4. Extract source
+      # 5. Inspect ZIP
+      - name: Inspect ZIP
+        run: |
+          echo "=== ZIP ROOT ==="
+          unzip -l lawnchair-source.zip | head -100
+
+          echo "=== IMPORTANT FILES ==="
+          unzip -l lawnchair-source.zip | grep -E \
+            '(^|/)(gradlew|settings.gradle|settings.gradle.kts|build.gradle|build.gradle.kts|gradle-wrapper.properties)$' \
+            | head -100 || true
+
+      # 6. Extract source
       - name: Extract source
         run: |
-          mkdir source
+          mkdir -p source
           unzip -q lawnchair-source.zip -d source
 
-          echo "=== EXTRACTED SOURCE ==="
-          ls -la source
+          echo "=== EXTRACTED ROOT ==="
+          find source -maxdepth 2 -type f | head -100
 
-      # 5. Pindahkan isi source ke root repository
+      # 7. Find actual project root
+      - name: Locate Gradle project
+        run: |
+          PROJECT_ROOT=""
+
+          if [ -f "source/gradlew" ]; then
+            PROJECT_ROOT="source"
+          else
+            FOUND=$(find source -type f -name gradlew -print -quit)
+
+            if [ -n "$FOUND" ]; then
+              PROJECT_ROOT="$(dirname "$FOUND")"
+            fi
+          fi
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "::error::gradlew tidak ditemukan di ZIP."
+            exit 1
+          fi
+
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+
+          echo "=== PROJECT ROOT ==="
+          echo "$PROJECT_ROOT"
+
+      # 8. Move project into repository root
       - name: Install source
-        shell: bash
         run: |
           shopt -s dotglob nullglob
 
-          items=(source/*)
-
-          if [ ${#items[@]} -eq 1 ] && [ -d "${items[0]}" ]; then
-            echo "Single root folder detected:"
-            echo "${items[0]}"
-
-            cp -a "${items[0]}"/. .
+          if [ "$PROJECT_ROOT" != "source" ]; then
+            cp -a "$PROJECT_ROOT"/. .
           else
-            echo "Source files are directly inside ZIP."
             cp -a source/. .
           fi
 
-          rm -rf source lawnchair-source.zip
-
-          echo "=== PROJECT ROOT ==="
+          echo "=== PROJECT ROOT CONTENT ==="
           ls -la
 
-      # 6. Pastikan Gradle wrapper executable
+          echo "=== GRADLE FILES ==="
+          find . -maxdepth 3 \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "gradlew" \) \
+            -print
+
+      # 9. Prepare Gradle
       - name: Prepare Gradle
         run: |
-          chmod +x gradlew
+          if [ ! -f "./gradlew" ]; then
+            echo "::error::gradlew tidak ada di project root."
+            exit 1
+          fi
 
-          echo "=== GRADLE VERSION ==="
+          chmod +x ./gradlew
+
+          echo "=== JAVA ==="
+          java -version
+
+          echo "=== GRADLE ==="
           ./gradlew --version
 
-      # 7. Build APK
-      - name: Build Lawnchair APK
+      # 10. Show available tasks
+      - name: Inspect Gradle tasks
         run: |
-          ./gradlew assembleLawnWithQuickstepDebug \
+          ./gradlew tasks --all \
             --no-daemon \
             --stacktrace \
-            --info
+            --console=plain \
+            > gradle-tasks.txt 2>&1 || true
 
-      # 8. Cari semua APK
+          echo "=== BUILD TASKS ==="
+          grep -Ei \
+            'assemble.*(debug|release)|bundle.*(debug|release)' \
+            gradle-tasks.txt \
+            | head -100 || true
+
+          echo "=== LAST GRADLE OUTPUT ==="
+          tail -100 gradle-tasks.txt
+
+      # 11. Build APK
+      - name: Build Lawnchair APK
+        run: |
+          set -e
+
+          echo "=== LOOKING FOR BUILD TASK ==="
+
+          TASK=""
+
+          if ./gradlew tasks --all --no-daemon --console=plain \
+              | grep -q "assembleLawnWithQuickstepDebug"; then
+            TASK="assembleLawnWithQuickstepDebug"
+          elif ./gradlew tasks --all --no-daemon --console=plain \
+              | grep -q "assembleDebug"; then
+            TASK="assembleDebug"
+          elif ./gradlew tasks --all --no-daemon --console=plain \
+              | grep -q "assembleLawnDebug"; then
+            TASK="assembleLawnDebug"
+          fi
+
+          if [ -z "$TASK" ]; then
+            echo "::error::Tidak menemukan task APK Debug yang dikenal."
+            echo "=== AVAILABLE ASSEMBLE TASKS ==="
+            ./gradlew tasks --all --no-daemon --console=plain \
+              | grep -Ei "assemble.*debug|assemble.*release" \
+              || true
+            exit 1
+          fi
+
+          echo "=== BUILD TASK ==="
+          echo "$TASK"
+
+          ./gradlew "$TASK" \
+            --no-daemon \
+            --stacktrace \
+            --console=plain
+
+      # 12. Find APK
       - name: Find APK
         if: always()
         run: |
           echo "=== APK FILES ==="
-          find . -type f -name "*.apk" -print
+          find . \
+            -type f \
+            -name "*.apk" \
+            -not -path "./.git/*" \
+            -print
 
-      # 9. Upload APK sebagai Artifact
+      # 13. Upload APK
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: lawnchair-debug-apk
