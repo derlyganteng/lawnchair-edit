@@ -20,11 +20,11 @@ jobs:
 
       # 2. Java 11 — TANPA cache gradle
       # Karena source Lawnchair baru masuk setelah ZIP diekstrak
-      - name: Setup Java 11
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11'
+          java-version: '17'
 
       # 3. Download source ZIP dari Google Drive
       - name: Install gdown
