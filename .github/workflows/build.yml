@@ -1,4 +1,4 @@
-name: Build Lawnchair APK
+name: I Hate Chat GPT
 
 on:
   workflow_dispatch:
@@ -21,42 +21,84 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip python3-pip
+          sudo apt-get install -y unzip python3-pip git
           python3 -m pip install --upgrade pip
           python3 -m pip install gdown
 
-      - name: Download source ZIP
+      - name: Download modified Lawnchair source
         run: |
           gdown "https://drive.google.com/uc?id=1zLdhfTVVcj6FWmbYRo8QkEhgARWXIYPR" \
             -O lawnchair-source.zip
 
+          echo "=== ZIP ==="
+          ls -lh lawnchair-source.zip
+          file lawnchair-source.zip
+
       - name: Extract source
         run: |
           rm -rf source
-          mkdir source
+          mkdir -p source
+
           unzip -q lawnchair-source.zip -d source
 
-          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs dirname)"
+          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs -r dirname)"
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "::error::gradlew tidak ditemukan."
+            exit 1
+          fi
 
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
 
-      - name: Install source
+          echo "=== PROJECT ROOT ==="
+          echo "$PROJECT_ROOT"
+
+      - name: Install modified source
         run: |
-          shopt -s dotglob
+          shopt -s dotglob nullglob
           cp -a "$PROJECT_ROOT"/. ./
 
-      - name: Restore SystemUI submodule
-        run: |
-          git submodule init
-          git submodule update --init --recursive
+          echo "=== ROOT ==="
+          ls -la
 
-      - name: Check required modules
+      - name: Remove incomplete SystemUI submodule
+        run: |
+          rm -rf platform_frameworks_libs_systemui
+
+      - name: Restore exact SystemUI submodule
+        run: |
+          git clone \
+            https://github.com/LawnchairLauncher/platform_frameworks_libs_systemui.git \
+            platform_frameworks_libs_systemui
+
+          cd platform_frameworks_libs_systemui
+
+          git checkout --detach \
+            e47476233aba2b05a8807ebf5b4c8fd0f89f24c3
+
+          cd ..
+
+          echo "=== SYSTEMUI COMMIT ==="
+          git -C platform_frameworks_libs_systemui rev-parse HEAD
+
+      - name: Verify required modules
         run: |
           echo "=== ICONLOADERLIB ==="
-          ls -la platform_frameworks_libs_systemui/iconloaderlib
+          test -f platform_frameworks_libs_systemui/iconloaderlib/build.gradle
+          echo "OK"
 
           echo "=== SEARCHUILIB ==="
-          ls -la platform_frameworks_libs_systemui/searchuilib
+          test -f platform_frameworks_libs_systemui/searchuilib/build.gradle
+          echo "OK"
+
+          echo "=== ICONLOADER BUILD FILE ==="
+          sed -n '1,80p' \
+            platform_frameworks_libs_systemui/iconloaderlib/build.gradle
+
+          echo "=== SEARCHUI BUILD FILE ==="
+          sed -n '1,80p' \
+            platform_frameworks_libs_systemui/searchuilib/build.gradle
+
       - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
@@ -66,11 +108,16 @@ jobs:
       - name: Prepare Gradle
         run: |
           chmod +x ./gradlew
+
+          echo "=== JAVA ==="
+          java -version
+
+          echo "=== GRADLE ==="
           ./gradlew --version
 
-      - name: Build APK
+      - name: Build Lawnchair
         run: |
-          ./gradlew assembleDebug \
+          ./gradlew assembleLawnWithQuickstepDebug \
             --no-daemon \
             --stacktrace \
             --console=plain \
@@ -80,7 +127,12 @@ jobs:
         if: always()
         run: |
           echo "=== APK FILES ==="
-          find . -type f -name "*.apk" -print
+
+          find . \
+            -type f \
+            -name "*.apk" \
+            -not -path "./.git/*" \
+            -print
 
       - name: Upload APK
         if: success()
@@ -88,5 +140,5 @@ jobs:
         with:
           name: lawnchair-debug-apk
           path: |
-            **/build/outputs/apk/**/*.apk
+            build/outputs/apk/lawnWithQuickstep/debug/*.apk
           if-no-files-found: error
