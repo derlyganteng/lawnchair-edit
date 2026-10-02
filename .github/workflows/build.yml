@@ -100,11 +100,11 @@ jobs:
             if [ -f "$f" ]; then
               echo "Patching $f"
               python3 - "$f" <<'PY'
-import re, sys
-from pathlib import Path
-p = Path(sys.argv[1])
-text = p.read_text()
-replacements = {
+         import re, sys
+         from pathlib import Path
+         p = Path(sys.argv[1])
+         text = p.read_text()
+         replacements = {
     "com.android.tools.build:gradle:3.6.4": "com.android.tools.build:gradle:8.2.2",
     "com.android.tools.build:gradle:4.2.2": "com.android.tools.build:gradle:8.2.2",
     "com.android.tools.build:gradle:7.0.4": "com.android.tools.build:gradle:8.2.2",
