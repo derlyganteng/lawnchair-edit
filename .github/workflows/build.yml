@@ -1,10 +1,10 @@
 name: Build Lawnchair APK
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip python3-pip
+          sudo apt-get install -y unzip python3-pip rsync
           python3 -m pip install --upgrade pip
           python3 -m pip install gdown
 
@@ -44,7 +44,8 @@ jobs:
       - name: Extract source
         run: |
           rm -rf source
-          mkdir -p source
+          mkdir source
+
           unzip -q lawnchair-source.zip -d source
 
           echo "=== EXTRACTED FILES ==="
@@ -54,79 +55,39 @@ jobs:
         id: gradle-root
         shell: bash
         run: |
-          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs -r dirname | head -n 1)"
+          set -e
+
+          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs -r dirname)"
 
           if [ -z "$PROJECT_ROOT" ]; then
-            echo "::error::No Gradle project found inside the downloaded ZIP."
-            find source -maxdepth 5 -type f | head -200 || true
+            echo "::error::No Gradle project found inside ZIP."
+            find source -maxdepth 5 -type f | head -200
             exit 1
           fi
 
           echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
+
           echo "=== PROJECT ROOT ==="
           echo "$PROJECT_ROOT"
 
-      - name: Install source into repo root
-        shell: bash
+      - name: Install source into repository
         run: |
           PROJECT_ROOT="${{ steps.gradle-root.outputs.project_root }}"
+
           shopt -s dotglob nullglob
-          rsync -a --delete "$PROJECT_ROOT"/. ./
+          rsync -a "$PROJECT_ROOT"/ ./ \
+            --exclude='.git/' \
+            --exclude='.github/'
 
-          echo "=== PROJECT ROOT CONTENT ==="
+          echo "=== ROOT ==="
           ls -la
-
-          echo "=== GRADLE FILES ==="
-          find . -maxdepth 3 \
-            \( -name "settings.gradle" \
-            -o -name "settings.gradle.kts" \
-            -o -name "build.gradle" \
-            -o -name "build.gradle.kts" \
-            -o -name "gradlew" \
-            -o -path "./gradle/wrapper/*" \) \
-            -print
-
-      - name: Fix Gradle and Android plugin compatibility
-        shell: bash
-        run: |
-          set -e
-
-          if [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            sed -i 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip#' \
-              gradle/wrapper/gradle-wrapper.properties
-          fi
-
-          for f in build.gradle build.gradle.kts settings.gradle settings.gradle.kts; do
-            if [ -f "$f" ]; then
-              echo "Patching $f"
-              python3 - "$f" <<'PY'
-         import re, sys
-         from pathlib import Path
-         p = Path(sys.argv[1])
-         text = p.read_text()
-         replacements = {
-    "com.android.tools.build:gradle:3.6.4": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:4.2.2": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:7.0.4": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:7.4.2": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:8.1.0": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:8.2.0": "com.android.tools.build:gradle:8.2.2",
-    "com.android.tools.build:gradle:8.2.1": "com.android.tools.build:gradle:8.2.2",
-}
-for old, new in replacements.items():
-    text = text.replace(old, new)
-p.write_text(text)
-PY
-            fi
-          done
-
-          echo "=== AGP VERSION CHECK ==="
-          grep -RIn "com.android.tools.build:gradle\|distributionUrl" . || true
 
       - name: Prepare Gradle
         run: |
+          set -e
+
           if [ ! -f "./gradlew" ]; then
-            echo "::error::gradlew is missing in the project root."
+            echo "::error::gradlew not found."
             exit 1
           fi
 
@@ -141,6 +102,7 @@ PY
       - name: Build APK
         run: |
           set -e
+
           ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace \
@@ -151,6 +113,7 @@ PY
         if: always()
         run: |
           echo "=== APK FILES ==="
+
           find . \
             -type f \
             -name "*.apk" \
