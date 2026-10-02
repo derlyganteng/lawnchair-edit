@@ -1,0 +1,88 @@
+name: Build Lawnchair APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      # 1. Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install Java 11
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: gradle
+
+      # 3. Download source ZIP dari Google Drive
+      - name: Install gdown
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install gdown
+
+      - name: Download Lawnchair source
+        run: |
+          gdown "https://drive.google.com/uc?id=1zLdhfTVVcj6FWmbYRo8QkEhgARWXIYPR" \
+            -O lawnchair-source.zip
+
+      # 4. Extract source
+      - name: Extract source
+        run: |
+          mkdir source
+          unzip -q lawnchair-source.zip -d source
+
+          echo "=== Extracted files ==="
+          ls -la source
+
+      # 5. Move source ke root workspace
+      - name: Install source
+        run: |
+          shopt -s dotglob nullglob
+
+          items=(source/*)
+
+          # Kalau ZIP punya satu folder root,
+          # masuk ke folder tersebut.
+          if [ ${#items[@]} -eq 1 ] && [ -d "${items[0]}" ]; then
+            cp -a "${items[0]}"/. .
+          else
+            cp -a source/. .
+          fi
+
+          rm -rf source lawnchair-source.zip
+
+      # 6. Pastikan Gradle wrapper executable
+      - name: Prepare Gradle
+        run: |
+          chmod +x gradlew
+
+      # 7. Build Lawnchair
+      - name: Build Lawnchair APK
+        run: |
+          ./gradlew assembleLawnWithQuickstepDebug \
+            --no-daemon \
+            --stacktrace
+
+      # 8. Cari APK
+      - name: Find APK
+        run: |
+          echo "=== APK files ==="
+          find . -type f -name "*.apk" -print
+
+      # 9. Upload APK ke GitHub Actions
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lawnchair-debug-apk
+          path: |
+            **/build/outputs/apk/**/*.apk
+          if-no-files-found: error
