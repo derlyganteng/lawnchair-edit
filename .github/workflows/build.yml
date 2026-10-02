@@ -125,3 +125,21 @@ jobs:
           path: |
             **/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      - name: Check Lawnchair modules
+        run: |
+          echo "=== ICONLOADERLIB ==="
+          ls -la iconloaderlib || true
+          find iconloaderlib -maxdepth 2 -type f -print || true
+
+          echo "=== SEARCHUILIB ==="
+          ls -la searchuilib || true
+          find searchuilib -maxdepth 2 -type f -print || true
+
+          echo "=== SETTINGS ==="
+          grep -n "iconloaderlib\|searchuilib" settings.gradle settings.gradle.kts 2>/dev/null || true
+
+          echo "=== MODULE BUILD FILES ==="
+          find iconloaderlib searchuilib \
+            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+            -print 2>/dev/null || true
