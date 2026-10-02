@@ -25,77 +25,51 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install gdown
 
-      - name: Download Lawnchair source
+      - name: Download source ZIP
         run: |
           gdown "https://drive.google.com/uc?id=1zLdhfTVVcj6FWmbYRo8QkEhgARWXIYPR" \
             -O lawnchair-source.zip
 
-          echo "=== ZIP INFO ==="
-          ls -lh lawnchair-source.zip
-          file lawnchair-source.zip
-
       - name: Extract source
         run: |
           rm -rf source
-          mkdir -p source
-
+          mkdir source
           unzip -q lawnchair-source.zip -d source
 
-          echo "=== FIND GRADLE PROJECT ==="
-          find source -type f -name "gradlew" -print
+          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs dirname)"
 
-      - name: Locate Gradle project
-        id: gradle-root
-        shell: bash
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+
+      - name: Install source
         run: |
-          PROJECT_ROOT="$(find source -type f -name gradlew -print -quit | xargs -r dirname)"
-
-          if [ -z "$PROJECT_ROOT" ]; then
-            echo "::error::No Gradle project found inside ZIP."
-            find source -maxdepth 5 -type f | head -200
-            exit 1
-          fi
-
-          echo "project_root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
-
-          echo "=== PROJECT ROOT ==="
-          echo "$PROJECT_ROOT"
-
-      - name: Install source into repository
-        shell: bash
-        run: |
-          PROJECT_ROOT="${{ steps.gradle-root.outputs.project_root }}"
-
-          shopt -s dotglob nullglob
+          shopt -s dotglob
           cp -a "$PROJECT_ROOT"/. ./
 
-          echo "=== ROOT FILES ==="
-          ls -la
+      - name: Download missing SystemUI submodule
+        run: |
+          rm -rf platform_frameworks_libs_systemui
 
-          echo "=== GRADLE FILES ==="
-          find . -maxdepth 3 \
-            \( -name "settings.gradle" \
-            -o -name "settings.gradle.kts" \
-            -o -name "build.gradle" \
-            -o -name "build.gradle.kts" \
-            -o -name "gradlew" \
-            -o -path "./gradle/wrapper/*" \) \
-            -print
+          git clone --depth 1 \
+            https://github.com/LawnchairLauncher/platform_frameworks_libs_systemui.git \
+            platform_frameworks_libs_systemui
 
-      - name: Setup Java 17
+      - name: Check required modules
+        run: |
+          echo "=== ICONLOADERLIB ==="
+          ls -la platform_frameworks_libs_systemui/iconloaderlib
+
+          echo "=== SEARCHUILIB ==="
+          ls -la platform_frameworks_libs_systemui/searchuilib
+
+      - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '11'
 
       - name: Prepare Gradle
         run: |
           chmod +x ./gradlew
-
-          echo "=== JAVA ==="
-          java -version
-
-          echo "=== GRADLE ==="
           ./gradlew --version
 
       - name: Build APK
@@ -110,12 +84,7 @@ jobs:
         if: always()
         run: |
           echo "=== APK FILES ==="
-
-          find . \
-            -type f \
-            -name "*.apk" \
-            -not -path "./.git/*" \
-            -print
+          find . -type f -name "*.apk" -print
 
       - name: Upload APK
         if: success()
@@ -125,21 +94,3 @@ jobs:
           path: |
             **/build/outputs/apk/**/*.apk
           if-no-files-found: error
-
-      - name: Check Lawnchair modules
-        run: |
-          echo "=== ICONLOADERLIB ==="
-          ls -la iconloaderlib || true
-          find iconloaderlib -maxdepth 2 -type f -print || true
-
-          echo "=== SEARCHUILIB ==="
-          ls -la searchuilib || true
-          find searchuilib -maxdepth 2 -type f -print || true
-
-          echo "=== SETTINGS ==="
-          grep -n "iconloaderlib\|searchuilib" settings.gradle settings.gradle.kts 2>/dev/null || true
-
-          echo "=== MODULE BUILD FILES ==="
-          find iconloaderlib searchuilib \
-            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
-            -print 2>/dev/null || true
